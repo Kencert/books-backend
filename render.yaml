@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: sally-bookstore-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    repo: https://github.com/Kencert/books-backend.git
+    branch: main
