@@ -58,22 +58,22 @@ app.post("/api/mpesa/stkpush", async (req, res) => {
     const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString("base64");
 
     // 🧾 Send email on STK initiation
-    await transporter.sendMail({
-      from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-      to: "info@cidalitravel.com",
-      cc: "zekele.enterprise@gmail.com",
-      subject: "STK Push Initiated",
-      html: `
-        <h2>STK Push Initiated</h2>
-        <p>Phone: ${phone}</p>
-        <p>Amount: Ksh ${amount}</p>
-        ${email ? `<p>Buyer Email: ${email}</p>` : ""}
-        <p>Status: Payment initiation in progress</p>
-        <br/>
-        <p>— CIDALI BookStore</p>
-      `,
-    });
-    console.log("📧 Initiation email sent to admin");
+    // await transporter.sendMail({
+    //   from: `"CIDALI BookStore" <${EMAIL_USER}>`,
+    //   to: "info@cidalitravel.com",
+    //   cc: "zekele.enterprise@gmail.com",
+    //   subject: "STK Push Initiated",
+    //   html: `
+    //     <h2>STK Push Initiated</h2>
+    //     <p>Phone: ${phone}</p>
+    //     <p>Amount: Ksh ${amount}</p>
+    //     ${email ? `<p>Buyer Email: ${email}</p>` : ""}
+    //     <p>Status: Payment initiation in progress</p>
+    //     <br/>
+    //     <p>— CIDALI BookStore</p>
+    //   `,
+    // });
+    // console.log("📧 Initiation email sent to admin");
 
     // 🔑 Trigger STK push
     const response = await axios.post(
@@ -237,22 +237,22 @@ app.post("/api/mpesa/delivery", async (req, res) => {
     const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString("base64");
 
     // 🧾 Send email on delivery STK initiation
-    await transporter.sendMail({
-      from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-      to: "info@cidalitravel.com",
-      cc: "zekele.enterprise@gmail.com",
-      subject: "Delivery Payment STK Initiated",
-      html: `
-        <h2>Delivery STK Push Initiated</h2>
-        <p>Phone: ${phone}</p>
-        <p>Amount: Ksh ${amount}</p>
-        <p>Delivery Address: ${address}</p>
-        <p>Status: Payment initiation in progress</p>
-        <br/>
-        <p>— CIDALI BookStore</p>
-      `,
-    });
-    console.log("📧 Delivery initiation email sent to admin");
+    // await transporter.sendMail({
+    //   from: `"CIDALI BookStore" <${EMAIL_USER}>`,
+    //   to: "info@cidalitravel.com",
+    //   cc: "zekele.enterprise@gmail.com",
+    //   subject: "Delivery Payment STK Initiated",
+    //   html: `
+    //     <h2>Delivery STK Push Initiated</h2>
+    //     <p>Phone: ${phone}</p>
+    //     <p>Amount: Ksh ${amount}</p>
+    //     <p>Delivery Address: ${address}</p>
+    //     <p>Status: Payment initiation in progress</p>
+    //     <br/>
+    //     <p>— CIDALI BookStore</p>
+    //   `,
+    // });
+    // console.log("📧 Delivery initiation email sent to admin");
 
     const response = await axios.post(
       "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
