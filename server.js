@@ -21,8 +21,8 @@ const {
   MPESA_CALLBACK_URL,
   // Email / Resend
   RESEND_KEY,
-  EMAIL_FROM,      // e.g. "CIDALI BookStore <onboarding@yourdomain.com>"
-  BASE_URL,        // optional: e.g. "https://yourdomain.com" (used for eBook links)
+  EMAIL_FROM,      
+  BASE_URL,    
 } = process.env;
 
 if (!RESEND_KEY) {
@@ -32,7 +32,7 @@ if (!RESEND_KEY) {
 const resend = new Resend(RESEND_KEY);
 
 // Helper: send email using Resend
-async function sendEmail({ from = EMAIL_FROM || "onboarding@resend.dev", to, subject, html, cc }) {
+async function sendEmail({ from = EMAIL_FROM , to, subject, html, cc }) {
   try {
     const payload = {
       from,
