@@ -3,10 +3,10 @@ import express from "express";
 import axios from "axios";
 import cors from "cors";
 import dotenv from "dotenv";
-import nodemailer from "nodemailer";
 import path from "path";
 import crypto from "crypto";
 import fs from "fs";
+import { Resend } from "resend";
 
 dotenv.config();
 const app = express();
@@ -19,21 +19,38 @@ const {
   MPESA_SHORTCODE,
   MPESA_PASSKEY,
   MPESA_CALLBACK_URL,
-  EMAIL_USER,
-  EMAIL_PASS,
+  // Email / Resend
+  RESEND_KEY,
+  EMAIL_FROM,      // e.g. "CIDALI BookStore <onboarding@yourdomain.com>"
+  BASE_URL,        // optional: e.g. "https://yourdomain.com" (used for eBook links)
 } = process.env;
 
-// 📩 Email Setup (Custom SMTP)
-const transporter = nodemailer.createTransport({
-  host: "mail.cidalitravel.com",
-  port: 465,
-  secure: true,
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
-  },
-});
+if (!RESEND_KEY) {
+  console.warn("⚠️ RESEND_KEY not set in environment. Emails will fail.");
+}
 
+const resend = new Resend(RESEND_KEY);
+
+// Helper: send email using Resend
+async function sendEmail({ from = EMAIL_FROM || "onboarding@resend.dev", to, subject, html, cc }) {
+  try {
+    const payload = {
+      from,
+      to,
+      subject,
+      html,
+    };
+    // Add cc if provided
+    if (cc) payload.cc = cc;
+    const result = await resend.emails.send(payload);
+    console.log("Resend send result:", result);
+    return result;
+  } catch (err) {
+    // Resend client returns helpful errors; log the message for debugging
+    console.error("Resend sendEmail error:", err?.message || err);
+    throw err;
+  }
+}
 
 // 🔑 Get Access Token
 async function getAccessToken() {
@@ -57,23 +74,27 @@ app.post("/api/mpesa/stkpush", async (req, res) => {
     const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
     const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString("base64");
 
-    // 🧾 Send email on STK initiation
-    // await transporter.sendMail({
-    //   from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-    //   to: "info@cidalitravel.com",
-    //   cc: "zekele.enterprise@gmail.com",
-    //   subject: "STK Push Initiated",
-    //   html: `
-    //     <h2>STK Push Initiated</h2>
-    //     <p>Phone: ${phone}</p>
-    //     <p>Amount: Ksh ${amount}</p>
-    //     ${email ? `<p>Buyer Email: ${email}</p>` : ""}
-    //     <p>Status: Payment initiation in progress</p>
-    //     <br/>
-    //     <p>— CIDALI BookStore</p>
-    //   `,
-    // });
-    // console.log("📧 Initiation email sent to admin");
+    // 🧾 Send email on STK initiation (notify admin)
+    try {
+      await sendEmail({
+        to: "info@cidalitravel.com",
+        cc: "zekele.enterprise@gmail.com",
+        subject: "STK Push Initiated",
+        html: `
+          <h2>STK Push Initiated</h2>
+          <p>Phone: ${phone}</p>
+          <p>Amount: Ksh ${amount}</p>
+          ${email ? `<p>Buyer Email: ${email}</p>` : ""}
+          <p>Status: Payment initiation in progress</p>
+          <br/>
+          <p>— CIDALI BookStore</p>
+        `,
+      });
+      console.log("📧 Initiation email sent to admin");
+    } catch (mailErr) {
+      console.error("Failed to send initiation email:", mailErr?.message || mailErr);
+      // continue — email failure should not block STK push
+    }
 
     // 🔑 Trigger STK push
     const response = await axios.post(
@@ -96,11 +117,10 @@ app.post("/api/mpesa/stkpush", async (req, res) => {
 
     res.json(response.data);
   } catch (err) {
-    console.error("STK Push error:", err.response?.data || err.message);
-    res.status(500).json({ error: "STK push failed", details: err.message });
+    console.error("STK Push error:", err.response?.data || err.message || err);
+    res.status(500).json({ error: "STK push failed", details: err.message || err });
   }
 });
-
 
 // ✅ Callback (M-PESA or test simulation)
 app.post("/api/mpesa/callback", async (req, res) => {
@@ -128,43 +148,50 @@ app.post("/api/mpesa/callback", async (req, res) => {
     const file = "Born_Too_Soon.pdf";
 
     ebookTokens[token] = { file, expiresAt };
-    const ebookViewLink = `http://localhost:5000/api/view/${file}?token=${token}`;
+    // Use BASE_URL from env if available (production), otherwise localhost.
+    const host = BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const ebookViewLink = `${host}/api/view/${file}?token=${token}`;
 
     // Send email to admin and CC
-    await transporter.sendMail({
-      from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-      to: "info@cidalitravel.com",
-      cc: "zekele.enterprise@gmail.com",
-      subject: "New Book Purchase Received",
-      html: `
-        <h2>New Purchase Notification</h2>
-        <p>Phone: ${phone}</p>
-        <p>Amount Paid: Ksh ${amount}</p>
-        ${email ? `<p>Buyer Email: ${email}</p>` : ""}
-        ${ebookViewLink ? `<p>eBook Link (buyer only): <a href="${ebookViewLink}" target="_blank">📘 Read Born Too Soon</a></p>` : ""}
-        <br/>
-        <p>— CIDALI BookStore</p>
-      `,
-    });
-
-    console.log(`✅ Admin notification email sent successfully`);
-
-    // Only send eBook link to buyer if email exists
-    if (email) {
-      await transporter.sendMail({
-        from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-        to: email,
-        subject: "Your eBook Purchase Confirmation",
+    try {
+      await sendEmail({
+        to: "info@cidalitravel.com",
+        cc: "zekele.enterprise@gmail.com",
+        subject: "New Book Purchase Received",
         html: `
-          <h2>Payment Successful!</h2>
-          <p>Thank you for your purchase. You can now view your eBook below (valid for 30 minutes):</p>
-          <p><a href="${ebookViewLink}" target="_blank">📘 Read Born Too Soon</a></p>
-          <p>This link will expire automatically for your security.</p>
+          <h2>New Purchase Notification</h2>
+          <p>Phone: ${phone}</p>
+          <p>Amount Paid: Ksh ${amount}</p>
+          ${email ? `<p>Buyer Email: ${email}</p>` : ""}
+          ${ebookViewLink ? `<p>eBook Link (buyer only): <a href="${ebookViewLink}" target="_blank">📘 Read Born Too Soon</a></p>` : ""}
           <br/>
           <p>— CIDALI BookStore</p>
         `,
       });
-      console.log(`✅ Email sent successfully to buyer: ${email}`);
+      console.log(`✅ Admin notification email sent successfully`);
+    } catch (mailErr) {
+      console.error("Failed to send admin notification email:", mailErr?.message || mailErr);
+    }
+
+    // Only send eBook link to buyer if email exists
+    if (email) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: "Your eBook Purchase Confirmation",
+          html: `
+            <h2>Payment Successful!</h2>
+            <p>Thank you for your purchase. You can now view your eBook below (valid for 30 minutes):</p>
+            <p><a href="${ebookViewLink}" target="_blank">📘 Read Born Too Soon</a></p>
+            <p>This link will expire automatically for your security.</p>
+            <br/>
+            <p>— CIDALI BookStore</p>
+          `,
+        });
+        console.log(`✅ Email sent successfully to buyer: ${email}`);
+      } catch (buyerMailErr) {
+        console.error("Failed to send buyer email:", buyerMailErr?.message || buyerMailErr);
+      }
     }
 
     res.json({
@@ -173,12 +200,10 @@ app.post("/api/mpesa/callback", async (req, res) => {
       ebookLink: ebookViewLink,
     });
   } catch (err) {
-    console.error("Callback error:", err.message);
-    res.status(500).json({ error: "Callback failed", details: err.message });
+    console.error("Callback error:", err.message || err);
+    res.status(500).json({ error: "Callback failed", details: err.message || err });
   }
 });
-
-
 
 // 🧱 Serve PDF securely (view-only)
 app.get("/api/secure-pdf/:filename", (req, res) => {
@@ -237,22 +262,25 @@ app.post("/api/mpesa/delivery", async (req, res) => {
     const password = Buffer.from(`${MPESA_SHORTCODE}${MPESA_PASSKEY}${timestamp}`).toString("base64");
 
     // 🧾 Send email on delivery STK initiation
-    // await transporter.sendMail({
-    //   from: `"CIDALI BookStore" <${EMAIL_USER}>`,
-    //   to: "info@cidalitravel.com",
-    //   cc: "zekele.enterprise@gmail.com",
-    //   subject: "Delivery Payment STK Initiated",
-    //   html: `
-    //     <h2>Delivery STK Push Initiated</h2>
-    //     <p>Phone: ${phone}</p>
-    //     <p>Amount: Ksh ${amount}</p>
-    //     <p>Delivery Address: ${address}</p>
-    //     <p>Status: Payment initiation in progress</p>
-    //     <br/>
-    //     <p>— CIDALI BookStore</p>
-    //   `,
-    // });
-    // console.log("📧 Delivery initiation email sent to admin");
+    try {
+      await sendEmail({
+        to: "info@cidalitravel.com",
+        cc: "zekele.enterprise@gmail.com",
+        subject: "Delivery Payment STK Initiated",
+        html: `
+          <h2>Delivery STK Push Initiated</h2>
+          <p>Phone: ${phone}</p>
+          <p>Amount: Ksh ${amount}</p>
+          <p>Delivery Address: ${address}</p>
+          <p>Status: Payment initiation in progress</p>
+          <br/>
+          <p>— CIDALI BookStore</p>
+        `,
+      });
+      console.log("📧 Delivery initiation email sent to admin");
+    } catch (mailErr) {
+      console.error("Failed to send delivery initiation email:", mailErr?.message || mailErr);
+    }
 
     const response = await axios.post(
       "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest",
@@ -275,17 +303,14 @@ app.post("/api/mpesa/delivery", async (req, res) => {
     console.log("Delivery STK Push response:", response.data);
     res.json(response.data);
   } catch (err) {
-    console.error("Delivery STK Push error:", err.response?.data || err.message);
-    res.status(500).json({ error: "Delivery STK push failed", details: err.message });
+    console.error("Delivery STK Push error:", err.response?.data || err.message || err);
+    res.status(500).json({ error: "Delivery STK push failed", details: err.message || err });
   }
 });
-
-
-
 
 // 🏠 Root route
 app.get("/", (req, res) => res.send("✅ CIDALI BookStore backend running"));
 
 // 🚀 Start server
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running at http://localhost:${PORT}`));
